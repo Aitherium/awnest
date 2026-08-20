@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awnest"
+version = "0.1.0"
+description = "Prove there is a human before you let them into the nest — a fail-closed human-check gate with bound, offline-verifiable attestations."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "httpx>=0.25.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+# Ed25519 attestations: a stranger can VERIFY without being able to MINT. The
+# stdlib HMAC default cannot offer that — a shared secret makes every verifier a
+# minter — so this extra is the difference between "inside one trust domain" and
+# "anyone can check".
+ed25519 = ["cryptography>=41.0"]
+
+[project.scripts]
+awnest = "awnest.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Aitherium/awnest"
+Documentation = "https://github.com/Aitherium/awnest#readme"
+Repository = "https://github.com/Aitherium/awnest.git"
+Issues = "https://github.com/Aitherium/awnest/issues"
+
+[tool.setuptools]
+packages = ["awnest"]
+license-files = ["LICENSE"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# The monorepo quality gate runs `ruff --isolated` from the REPO ROOT, where
+# first-party detection cannot see this directory, so it files `awnest` as
+# third-party. Rooted here, ruff would instead detect it as first-party and
+# demand the OPPOSITE import layout -- two invocations giving mutually
+# exclusive verdicts on the same file, each `--fix` undoing the other.
+# Empty `src` disables path-based detection so the local run agrees with the
+# gate that actually blocks a merge. Asserted by tests/test_lint_config_agrees.py.
+src = []
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501", "E402", "E741"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
