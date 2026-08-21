@@ -5,7 +5,7 @@
   "url": "https://aitherium.github.io/awnest/",
   "repository": "https://github.com/Aitherium/awnest",
   "kind": "tool",
-  "status": "public",
+  "status": "no-pages",
   "adopt": "Gate one action behind a human check and watch an automated caller fail it.",
   "pairs_with": [
     "awiam",
