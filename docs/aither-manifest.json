@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1",
+  "name": "awnest",
+  "description": "Prove there is a human before you let them into the nest.",
+  "url": "https://aitherium.github.io/awnest/",
+  "repository": "https://github.com/Aitherium/awnest",
+  "kind": "tool",
+  "status": "public",
+  "adopt": "Gate one action behind a human check and watch an automated caller fail it.",
+  "pairs_with": [
+    "awiam",
+    "awbac",
+    "awdit",
+    "awseal",
+    "awrelay",
+    "awgit",
+    "awnet",
+    "awtunnel",
+    "awdk"
+  ],
+  "includes": [],
+  "metrics": {
+    "files": {
+      "value": 22,
+      "as_of": "2026-08-22T18:47:19-07:00"
+    },
+    "tests": {
+      "value": 2,
+      "as_of": "2026-08-22T18:47:19-07:00"
+    }
+  }
+}
