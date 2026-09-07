@@ -15,6 +15,25 @@ The parts that need the outside world -- a judge, a humanity-check service -- ar
 in `judge` and `client` and import httpx. The three above are stdlib only, so the
 gate keeps working on a machine that cannot reach anything.
 """
+from awnest.alignment import (
+    ALIGNMENT_AUDIENCE,
+    ALIGNMENT_IDS,
+    ALIGNMENTS,
+    NEUTRAL_BAND,
+    QUESTIONS,
+    QUIZ_VERSION,
+    AlignmentResult,
+    Option,
+    Question,
+    badge_svg,
+    chart_svg,
+    mint_badge,
+    parse_result_context,
+    questions_public,
+    result_context,
+    score_answers,
+    verify_badge,
+)
 from awnest.attest import (
     Attestation,
     AttestationError,
@@ -66,5 +85,13 @@ __all__ = [
     "audience", "KINDS",
     "attest_commit", "verify_commit", "trailer_line", "find_trailer", "tree_context",
     "repo_audience", "TRAILER",
+    # The alignment door -- the FUN one. A deterministic quiz into the nine
+    # classic cells, a badge SVG, and a signed attestation bound to the exact
+    # result so a badge cannot be relabeled without invalidating the token.
+    "AlignmentResult", "Question", "Option", "QUESTIONS", "ALIGNMENTS",
+    "ALIGNMENT_IDS", "NEUTRAL_BAND", "QUIZ_VERSION", "ALIGNMENT_AUDIENCE",
+    "score_answers", "questions_public", "result_context",
+    "parse_result_context", "mint_badge", "verify_badge", "badge_svg",
+    "chart_svg",
     "__version__",
 ]

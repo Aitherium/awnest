@@ -5,6 +5,12 @@
     awnest mint   --audience checkout --subject u_42 --verdict human --score 80
     awnest verify TOKEN --audience checkout
     awnest gate   TOKEN --audience checkout --subject u_42
+    awnest alignment quiz                       print the alignment questions
+    awnest alignment score --answers a.json     score them into the nine cells
+    awnest alignment badge --answers a.json --subject u_42 --out ./badge
+                                                score, mint a signed badge, write SVGs
+    awnest alignment verify TOKEN --subject u_42
+                                                check a badge token against the door
     awnest --self-test
 
 The signing secret comes from --secret or AWNEST_SECRET, and the judge origin from
@@ -22,8 +28,23 @@ import os
 import random
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
+from awnest.alignment import (
+    ALIGNMENT_AUDIENCE,
+    ALIGNMENT_IDS,
+    NEUTRAL_BAND,
+    QUESTIONS,
+    QUIZ_VERSION,
+    badge_svg,
+    chart_svg,
+    mint_badge,
+    questions_public,
+    result_context,
+    score_answers,
+    verify_badge,
+)
 from awnest.attest import (
     ATTESTATION_FIELDS,
     AttestationError,
@@ -100,6 +121,71 @@ def _raises(fn, *args, **kwargs) -> bool:
     except (ValueError, AttestationError, NotAdmitted):
         return True
     return False
+
+
+def _find_alignment_picks(target: str) -> Optional[dict[str, str]]:
+    """Find an answer set that lands in `target` -- a bounded search over the
+    (law, good) weight space, so the self-test PROVES every cell is reachable
+    rather than asserting it. Returns None when nothing is found within the
+    cap, which the self-test reports as a failure rather than guessing."""
+    bound = NEUTRAL_BAND * len(QUESTIONS)
+    # `true_neutral` does not split on "_" the way the other eight ids do --
+    # its order half is "neutral", spelled by its own name.
+    order_half = "neutral" if target == "true_neutral" else target.split("_")[0]
+    order_goal = {"lawful": 1, "neutral": 0, "chaotic": -1}[order_half]
+    moral_goal = {"good": 1, "neutral": 0, "evil": -1}[target.rsplit("_", 1)[1]]
+
+    def ok(v: float, goal: int) -> bool:
+        if goal == 1:
+            return v > bound
+        if goal == -1:
+            return v < -bound
+        return abs(v) <= bound
+
+    def max_swing(i: int) -> float:
+        return sum(max(abs(o.law), abs(o.good))
+                   for q in QUESTIONS[i:] for o in q.options)
+
+    picks: dict[str, str] = {}
+    nodes = 0
+
+    def dfs(i: int, law: float, good: float) -> Optional[dict[str, str]]:
+        nonlocal nodes
+        nodes += 1
+        if nodes > 200_000:
+            return None
+        if i == len(QUESTIONS):
+            return dict(picks) if ok(law, order_goal) and ok(good, moral_goal) else None
+        swing = max_swing(i)
+        if order_goal == 1 and law + swing <= bound:
+            return None
+        if order_goal == -1 and law - swing >= -bound:
+            return None
+        if order_goal == 0 and abs(law) - swing > bound:
+            return None
+        if moral_goal == 1 and good + swing <= bound:
+            return None
+        if moral_goal == -1 and good - swing >= -bound:
+            return None
+        if moral_goal == 0 and abs(good) - swing > bound:
+            return None
+        q = QUESTIONS[i]
+        # Goal-directed ordering: try the option closest to the target point
+        # first. Without this the evil cells are found only after millions of
+        # dead branches through the good options that come first in the bank.
+        law_target = float(order_goal)
+        good_target = float(moral_goal)
+        for opt in sorted(q.options,
+                          key=lambda o: abs(o.law - law_target)
+                          + abs(o.good - good_target)):
+            picks[q.id] = opt.id
+            found = dfs(i + 1, law + opt.law, good + opt.good)
+            if found is not None:
+                return found
+        picks.pop(q.id, None)
+        return None
+
+    return dfs(0, 0.0, 0.0)
 
 
 def _self_test() -> int:  # noqa: C901 - a flat list of independent assertions
@@ -343,6 +429,63 @@ def _self_test() -> int:  # noqa: C901 - a flat list of independent assertions
     if repo_audience("acme/widgets", "release") == repo_audience("acme/widgets"):
         f.append("a branch-specific door collapsed into the repo-wide one")
 
+    # 14. The alignment door: every cell reachable, scoring deterministic,
+    #     refusals strict, and the badge bound to the exact result.
+    if len(ALIGNMENT_IDS) != 9:
+        f.append(f"expected nine alignments, found {len(ALIGNMENT_IDS)}")
+    if "true_neutral" not in ALIGNMENT_IDS or "chaotic_good" not in ALIGNMENT_IDS:
+        f.append("the classic chart lost a cell")
+    pub = questions_public()
+    if len(pub) != len(QUESTIONS):
+        f.append("questions_public() does not match the question bank")
+    if any("law" in o or "good" in o for q in pub for o in q["options"]):
+        f.append("questions_public() shipped the weights with the questions")
+    answers = {q["id"]: q["options"][0]["id"] for q in pub}
+    first = score_answers(answers)
+    if score_answers(answers) != first:
+        f.append("the alignment door is not deterministic")
+    for target in ALIGNMENT_IDS:
+        picks = _find_alignment_picks(target)
+        if picks is None:
+            f.append(f"no answer set reaches {target} within the search cap")
+            continue
+        got = score_answers(picks)
+        if got.alignment != target:
+            f.append(f"an answer set aimed at {target} landed on {got.alignment}")
+    if not _raises(score_answers, {}):
+        f.append("scored an empty answer set")
+    partial = dict(answers)
+    partial.pop(next(iter(partial)))
+    if not _raises(score_answers, partial):
+        f.append("scored a partial answer set")
+    crossed = dict(answers)
+    crossed["q01"] = "q02_a"
+    if not _raises(score_answers, crossed):
+        f.append("accepted an answer for one question that belongs to another")
+    ctx = result_context(first)
+    if not ctx.startswith("alignment:") or "quiz=" not in ctx:
+        f.append("the result context lost its binding")
+    token = mint_badge(key, sub="u1", result=first, now=t)
+    att = verify_badge(token, key, subject="u1", now=t + 10)
+    if att.aud != ALIGNMENT_AUDIENCE or att.ctx != ctx:
+        f.append("the badge attestation did not survive its round trip")
+    if not _raises(verify_badge, token, HmacKey("another-secret-123456"), now=t + 10):
+        f.append("a badge verified under the wrong key")
+    if not _raises(verify_badge, token, key, subject="u2", now=t + 10):
+        f.append("a badge about one identity verified for another")
+    if not _raises(verify, token, key, audience="action:other-door", now=t + 10):
+        f.append("a badge for the alignment door opened another door")
+    if not _raises(verify, token, key, audience=ALIGNMENT_AUDIENCE,
+                   context="alignment:lawful_good:law=+1.000:good=+1.000:quiz=v1",
+                   now=t + 10):
+        f.append("a badge accepted a DIFFERENT result context -- relabeling works")
+    svg = badge_svg(first, subject="u1", issued_at=t)
+    chart = chart_svg(first)
+    if not svg.startswith("<svg") or first.public()["name"] not in svg:
+        f.append("badge_svg did not render the alignment it was given")
+    if not chart.startswith("<svg") or chart.count("<rect") != 9:
+        f.append("chart_svg did not render the full 3x3 chart")
+
     if f:
         print("SELF-TEST FAILURES:")
         for line in f:
@@ -484,12 +627,95 @@ def _cmd_commit_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_alignment_quiz(args: argparse.Namespace) -> int:
+    print(json.dumps({"quiz": QUIZ_VERSION, "questions": questions_public()},
+                     indent=2))
+    return 0
+
+
+def _cmd_alignment_score(args: argparse.Namespace) -> int:
+    try:
+        answers = json.loads(open(args.answers, encoding="utf-8").read())
+    except (OSError, ValueError) as exc:
+        print(f"cannot read --answers: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(answers, dict):
+        print("--answers must be a JSON object of question_id -> option_id",
+              file=sys.stderr)
+        return 2
+    try:
+        result = score_answers(answers)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(json.dumps(result.public(), indent=2))
+    return 0
+
+
+def _cmd_alignment_badge(args: argparse.Namespace) -> int:
+    try:
+        answers = json.loads(open(args.answers, encoding="utf-8").read())
+    except (OSError, ValueError) as exc:
+        print(f"cannot read --answers: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(answers, dict):
+        print("--answers must be a JSON object of question_id -> option_id",
+              file=sys.stderr)
+        return 2
+    try:
+        result = score_answers(answers)
+        token = mint_badge(HmacKey(_secret(args)), sub=args.subject, result=result)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    out = Path(args.out)
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "badge.svg").write_text(
+            badge_svg(result, subject=args.subject, issued_at=time.time()),
+            encoding="utf-8")
+        (out / "chart.svg").write_text(chart_svg(result), encoding="utf-8")
+    except OSError as exc:
+        print(f"cannot write the badge files: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({"token": token, **result.public()}, indent=2))
+    print(f"badge: {out / 'badge.svg'}", file=sys.stderr)
+    print(f"chart: {out / 'chart.svg'}", file=sys.stderr)
+    return 0
+
+
+def _cmd_alignment_verify(args: argparse.Namespace) -> int:
+    try:
+        att = verify_badge(args.token, HmacKey(_secret(args)), subject=args.subject)
+    except AttestationError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(json.dumps({
+        "subject": att.sub, "audience": att.aud, "context": att.ctx,
+        "verdict": att.verdict.value, "method": att.method,
+        "age_s": int(att.age_s()),
+    }, indent=2))
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     # GENERATED doctor intercept (gen_aw_doctor.py) -- do not edit
     _dv = locals().get("argv")
     if (_dv if _dv is not None else __import__("sys").argv[1:])[:1] == ["doctor"]:
         from ._doctor import report
         return report()
+    # GENERATED repo-state intercept (gen_aw_doctor.py) -- do not edit
+    try:
+        from awgit import state as _aw_state
+    except Exception:
+        _aw_state = None
+    if _aw_state is not None:
+        _sv = locals().get("argv")
+        if _aw_state.cli_banner(_sv if _sv is not None else __import__("sys").argv[1:]):
+            return 0
     p = argparse.ArgumentParser(prog="awnest", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--self-test", action="store_true", help="prove this package can still fail")
@@ -548,6 +774,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     cv.add_argument("--ref", default=None)
     cv.add_argument("--identity", default=None)
     cv.set_defaults(fn=_cmd_commit_verify)
+
+    al = sub.add_parser("alignment", help="the alignment door: quiz, score, badge")
+    al_sub = al.add_subparsers(dest="alignment_cmd")
+    aq = al_sub.add_parser("quiz", help="print the questions (never the weights)")
+    aq.set_defaults(fn=_cmd_alignment_quiz)
+    asc = al_sub.add_parser("score", help="score an answer file into the nine cells")
+    asc.add_argument("--answers", required=True, help="JSON file: question_id -> option_id")
+    asc.set_defaults(fn=_cmd_alignment_score)
+    ab = al_sub.add_parser("badge", help="score answers and mint a signed badge")
+    ab.add_argument("--answers", required=True, help="JSON file: question_id -> option_id")
+    ab.add_argument("--subject", required=True, help="the awiam identity id this badge is about")
+    ab.add_argument("--out", default=".", help="directory for badge.svg + chart.svg")
+    ab.set_defaults(fn=_cmd_alignment_badge)
+    av = al_sub.add_parser("verify", help="check a badge token against the alignment door")
+    av.add_argument("token")
+    av.add_argument("--subject", default=None)
+    av.set_defaults(fn=_cmd_alignment_verify)
 
     args = p.parse_args(argv)
     if args.self_test:

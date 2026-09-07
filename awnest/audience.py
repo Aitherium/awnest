@@ -38,6 +38,8 @@ KINDS = (
     "tunnel",    # a tunnelled service -- who may reach it from outside
     "app",       # a deployed application surface
     "action",    # one specific action: a purchase, a signup, a deletion
+    "forum",     # a forum board / workspace slug -- who may post threads
+    "space",     # an AitherSpace profile -- who may write to it
 )
 
 _REFUSED_NAMES = {"*", "any", "all", "-"}
