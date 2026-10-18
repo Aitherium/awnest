@@ -25,6 +25,7 @@ Gate one action behind a human check and watch an automated caller fail it.
 - [awnet](https://aitherium.github.io/awnet/) — The agentic web — agents host a mesh, and agents join one.
 - [awtunnel](https://aitherium.github.io/awtunnel/) — Reach a service that has no public address.
 - [awdk](https://aitherium.github.io/awdk/) — Build AI agent fleets — 3 lines, any backend, local or cloud.
+- [awpermit](https://aitherium.github.io/awpermit/) — Let an agent through your door with a scope, a spend cap, and someone accountable.
 
 ## Where it lives
 
