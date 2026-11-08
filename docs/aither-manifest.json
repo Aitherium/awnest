@@ -19,5 +19,15 @@
     "awdk",
     "awpermit"
   ],
-  "includes": []
+  "includes": [],
+  "metrics": {
+    "files": {
+      "value": 34,
+      "as_of": "2026-11-08T07:57:01-08:00"
+    },
+    "tests": {
+      "value": 4,
+      "as_of": "2026-11-08T07:57:01-08:00"
+    }
+  }
 }
